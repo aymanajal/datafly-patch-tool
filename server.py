@@ -23,6 +23,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 import zipfile
+import tempfile
+from frontend import check_frontend, extract_frontend, tree_manifest, normalize_permissions, sync_directory
 
 ROOT = Path(__file__).resolve().parent
 
@@ -70,6 +72,11 @@ def check_jar(path, max_unpacked):
 
 
 class Manager:
+    upload_suffix = '.jar'
+
+    def validate_upload(self, path):
+        check_jar(path, self.config['max_unpacked'])
+
     def __init__(self, config):
         self.config = config
         self.app = Path(config['app_dir']).resolve()
@@ -127,7 +134,7 @@ class Manager:
         return {'pids': self.pids(), 'port_open': self.port_open(),
                 'host': self.config['target_label'], 'app_dir': str(self.app),
                 'port': self.config['app_port'], 'max_upload': self.config['max_upload'],
-                'active': self.active}
+                'active': self.active, 'deployment_type': 'backend'}
 
     def snapshot(self):
         with self.mutex:
@@ -135,7 +142,7 @@ class Manager:
         uploads = []
         for path in sorted((self.data / 'uploads').glob('*.json'), reverse=True):
             item = json.loads(path.read_text(encoding='utf-8'))
-            if path.with_suffix('.jar').is_file():
+            if path.with_suffix(self.upload_suffix).is_file():
                 uploads.append(item)
         backups = []
         if self.backups.is_dir():
@@ -179,6 +186,9 @@ class Manager:
                 raise ValueError('请选择本工具创建的备份。')
             source = self.backups / source_id
             expected = None
+        return self.start_job(kind, source_id, source, expected)
+
+    def start_job(self, kind, source_id, source, expected):
         self.preflight()
         lock = open(str(self.app / '.datafly-update.lock'), 'a')
         try:
@@ -188,7 +198,8 @@ class Manager:
             raise ValueError('已有更新任务正在运行，请稍后再试。')
         job_id = datetime.datetime.now().strftime('%Y%m%dT%H%M%S') + '-' + secrets.token_hex(4)
         job = {'id': job_id, 'kind': kind, 'source': source_id, 'state': 'running',
-               'stage': 'validate', 'created': now(), 'events': [], 'backup': None}
+               'stage': 'validate', 'created': now(), 'events': [], 'backup': None,
+               'deployment_type': self.config.get('deployment_type', 'backend')}
         try:
             with self.mutex:
                 if self.active:
@@ -210,7 +221,7 @@ class Manager:
         with self.mutex:
             if self.active:
                 raise ValueError('更新期间不能删除上传文件。')
-            for suffix in ('.json', '.jar'):
+            for suffix in ('.json', self.upload_suffix):
                 path = self.data / 'uploads' / (source_id + suffix)
                 if path.exists():
                     path.unlink()
@@ -316,6 +327,130 @@ class Manager:
             lock.close()
             with self.mutex:
                 self.active = None
+
+
+class FrontendManager(Manager):
+    upload_suffix = '.zip'
+
+    def __init__(self, config):
+        front = Path(config.get('frontend_dir', '/usr/local/nginx/html/dist')).absolute()
+        if front.name != 'dist' or front.parent.is_symlink():
+            raise ValueError('前端目标必须是普通父目录下的 dist 目录。')
+        self.front = front.parent.resolve() / 'dist'
+        local_config = dict(config, app_dir=str(self.front.parent))
+        super().__init__(local_config)
+        self.backups = self.front.parent
+
+    def validate_upload(self, path):
+        check_frontend(path, self.config['max_unpacked'])
+
+    def status(self):
+        available = self.front.is_dir() and not self.front.is_symlink() and (self.front / 'index.html').is_file()
+        return {'host': self.config['target_label'], 'app_dir': str(self.front),
+                'port': None, 'pids': [], 'port_open': False, 'frontend_ready': available,
+                'max_upload': self.config['max_upload'], 'active': self.active,
+                'deployment_type': 'frontend'}
+
+    def snapshot(self):
+        data = super().snapshot()
+        data['backups'] = []
+        for path in sorted(self.backups.glob('dist-backup-*'), reverse=True):
+            if self.valid_backup(path.name) and path.is_dir() and not path.is_symlink():
+                data['backups'].append({'id': path.name, 'size': None})
+        return data
+
+    @staticmethod
+    def valid_backup(name):
+        return isinstance(name, str) and bool(re.fullmatch(r'dist-backup-[0-9T_]+(?:-[a-f0-9]{8})?', name))
+
+    def preflight(self):
+        if self.front.is_symlink() or not self.front.is_dir() or not (self.front / 'index.html').is_file():
+            raise ValueError('前端 dist 不存在、为链接或缺少 index.html。')
+        if not os.access(str(self.front.parent), os.W_OK):
+            raise ValueError('没有前端父目录写权限。')
+        # 不允许将上传文件或登录配置放进对外提供的静态目录。
+        if self.data == self.front or self.front in self.data.parents:
+            raise ValueError('工具运行目录不能放在公开的 dist 内。')
+
+    def submit(self, kind, source_id):
+        if kind == 'update':
+            if not isinstance(source_id, str) or not re.fullmatch(r'[a-f0-9]{32}', source_id):
+                raise ValueError('无效前端补丁编号。')
+            source = self.data / 'uploads' / (source_id + '.zip')
+            meta = json.loads(source.with_suffix('.json').read_text(encoding='utf-8'))
+            expected = meta['sha256']
+        elif kind == 'rollback' and self.valid_backup(source_id):
+            source, expected = self.backups / source_id, None
+        else:
+            raise ValueError('请选择有效的前端补丁或备份。')
+        return self.start_job(kind, source_id, source, expected)
+
+    def deploy(self, job, source, expected, lock):
+        stage = None
+        backup = self.front.parent / ('dist-backup-' + job['id'])
+        moved_old, moved_new = False, False
+        recovery_failed = False
+        try:
+            self.event(job, '检查前端补丁；本操作不调用 Nginx 或 Java 启停命令。')
+            old_manifest, _ = tree_manifest(self.front, self.config['max_unpacked'])
+            if job['kind'] == 'update':
+                size = check_frontend(source, self.config['max_unpacked'])
+                sha = digest(source)
+                if not hmac.compare_digest(sha, expected):
+                    raise ValueError('前端补丁上传后发生变化。')
+                source_manifest = None
+            else:
+                source_manifest, size = tree_manifest(source, self.config['max_unpacked'])
+            if shutil.disk_usage(str(self.front.parent)).free < size + 256 * 1024 ** 2:
+                raise ValueError('前端暂存空间不足。')
+            stage = Path(tempfile.mkdtemp(prefix='.front-stage-', dir=str(self.front.parent)))
+            candidate = stage / 'dist'
+            self.event(job, '在独立目录准备新 dist，保留当前网页。', stage='extract')
+            if job['kind'] == 'update':
+                extract_frontend(source, candidate, self.config['max_unpacked'])
+            else:
+                shutil.copytree(str(source), str(candidate), symlinks=True)
+            new_manifest, _ = tree_manifest(candidate, self.config['max_unpacked'])
+            if source_manifest is not None and new_manifest != source_manifest:
+                raise ValueError('回退暂存副本校验失败。')
+            normalize_permissions(candidate)
+            # 防止暂存期间其他人手工替换了正式文件。
+            if tree_manifest(self.front, self.config['max_unpacked'])[0] != old_manifest:
+                raise ValueError('正式前端在准备期间发生变化，已取消切换。')
+            if backup.exists():
+                raise ValueError('备份目录已存在，取消切换。')
+            self.event(job, '即将备份并切换目录，期间可能有短暂访问间隙。', stage='replace', backup=backup.name)
+            self.front.rename(backup)
+            moved_old = True
+            candidate.rename(self.front)
+            moved_new = True
+            sync_directory(self.front.parent)
+            if tree_manifest(self.front, self.config['max_unpacked'])[0] != new_manifest:
+                raise ValueError('切换后的文件校验失败。')
+            self.event(job, '目录切换与文件校验通过。请强制刷新页面并验证登录和补丁功能。',
+                       state='succeeded', stage='done', finished=now())
+        except Exception as exc:
+            recovery = ''
+            if moved_old:
+                try:
+                    if moved_new:
+                        self.front.rename(stage / 'failed-dist')
+                    backup.rename(self.front)
+                    sync_directory(self.front.parent)
+                    recovery = ' 已恢复切换前的 dist。'
+                except Exception as restore_exc:
+                    recovery_failed = True
+                    recovery = ' 自动恢复未完成：%s。旧目录位置：%s；请人工处理。' % (restore_exc, backup)
+            self.event(job, str(exc) + recovery, state='failed', finished=now())
+        finally:
+            # 如果人工恢复仍需暂存文件，保留现场供排查。
+            try:
+                if not recovery_failed and stage and stage.exists() and (self.front / 'index.html').is_file():
+                    shutil.rmtree(str(stage))
+            finally:
+                lock.close()
+                with self.mutex:
+                    self.active = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -488,9 +623,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self.server.upload_lock.acquire(False):
             return self.reply(409, {'error': '正在上传另一份补丁，请稍后重试。'})
         upload_id = secrets.token_hex(16)
-        path = self.manager.data / 'uploads' / (upload_id + '.jar')
+        path = self.manager.data / 'uploads' / (upload_id + self.manager.upload_suffix)
         try:
-            total = sum(item.stat().st_size for item in (self.manager.data / 'uploads').glob('*.jar'))
+            total = sum(item.stat().st_size for item in (self.manager.data / 'uploads').iterdir() if item.suffix in ('.jar', '.zip'))
             if total + length > config['max_stored_uploads']:
                 raise ValueError('待更新补丁累计超过 5GB，请先删除不再需要的上传文件。')
             with open(str(path), 'xb') as stream:
@@ -503,12 +638,13 @@ class Handler(BaseHTTPRequestHandler):
                     remain -= len(chunk)
                 stream.flush()
                 os.fsync(stream.fileno())
-            check_jar(path, config['max_unpacked'])
-            name = self.headers.get('X-File-Name', 'datafly-admin.jar')
+            self.manager.validate_upload(path)
+            default_name = 'dist.zip' if self.manager.upload_suffix == '.zip' else 'datafly-admin.jar'
+            name = self.headers.get('X-File-Name', default_name)
             try:
                 name = base64.b64decode(name, validate=True).decode('utf-8')
             except (ValueError, UnicodeError):
-                name = 'datafly-admin.jar'
+                name = default_name
             name = name.replace('\\', '/').rsplit('/', 1)[-1][:180]
             meta = {'id': upload_id, 'name': name, 'size': length, 'sha256': digest(path), 'created': now()}
             atomic_json(path.with_suffix('.json'), meta)
@@ -529,6 +665,7 @@ def defaults(config_path):
             'max_stored_uploads': 5 * 1024 ** 3,
             'allowed_peers': ['127.0.0.1'],
             'stop_timeout': 120, 'start_timeout': 300, 'stable_seconds': 10,
+            'deployment_type': 'backend', 'frontend_dir': '/usr/local/nginx/html/dist',
             'secure_cookie': False}
 
 
@@ -562,7 +699,10 @@ def main():
         fcntl.flock(instance, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         raise SystemExit('同一数据目录已有更新工具运行。')
-    manager = Manager(config)
+    mode = config.get('deployment_type', 'backend')
+    if mode not in ('backend', 'frontend'):
+        raise SystemExit('deployment_type 只能为 backend 或 frontend。')
+    manager = FrontendManager(config) if mode == 'frontend' else Manager(config)
     if args.check:
         manager.preflight()
         print(json.dumps(manager.status(), ensure_ascii=False, indent=2))

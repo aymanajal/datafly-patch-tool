@@ -50,3 +50,7 @@ DATAFLY_DIR=/实际部署目录 bash datafly-update.sh
 ```
 
 命令行版保留人工确认服务停止，依赖 `unzip`、`flock` 和 GNU coreutils；网页版使用 Python 标准库处理这些环节。二者使用相同部署锁，但都不能阻止其他人手工替换 JAR，维护时仍需协调。
+
+## 更新前端
+
+在前端服务器的工具页面操作，确认页面标题为“前端补丁”。上传包含 dist/ 的 ZIP、校验后确认更新。完成后强制刷新影像网页并验证功能。前端模式不停止 Nginx 或 Java，详情见 [前端工具说明](FRONTEND.md)。

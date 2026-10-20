@@ -135,3 +135,7 @@ systemctl status datafly-patch-web --no-pager
 ## 8. 首次更新
 
 先在测试环境用真实补丁验证，再在正式维护窗口执行。流程见 [日常使用](docs/OPERATIONS.md)。部署网页工具、预检查、登录和上传文件，都不等于已经更新正式后端。
+
+## 前端补丁模式
+
+静态前端位于另一台服务器时，在该服务器单独部署本工具，并设置 `deployment_type` 为 `frontend`。旧后端配置未设置该字段时仍按后端模式运行。完整步骤见 [前端补丁工具](docs/FRONTEND.md)。不要将现有后端实例切换为前端模式。

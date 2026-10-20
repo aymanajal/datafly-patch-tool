@@ -1,6 +1,6 @@
 # 上传 GitHub 前
 
-GitHub 仓库：[aymanajal/datafly-patch-tool](https://github.com/aymanajal/datafly-patch-tool)，创建为私有仓库。首次提交仅包含脱敏源码、部署模板、文档及测试。
+GitHub 仓库：[aymanajal/datafly-patch-tool](https://github.com/aymanajal/datafly-patch-tool)，现为公开仓库（初始创建为私有，随后按用户要求改为公开）。首次提交仅包含脱敏源码、部署模板、文档及测试。
 
 ## 已区分的文件
 

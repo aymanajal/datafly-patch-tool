@@ -1,33 +1,33 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>影像 · 后端补丁</title><link rel="stylesheet" href="style.css"><script src="app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>影像 · 补丁更新</title><link rel="stylesheet" href="style.css"><script src="app.js" defer></script></head>
 <body>
-<header><div class="brand"><span class="mark" aria-hidden="true">影</span><div><strong>影像运维</strong><span>后端补丁更新</span></div></div><button id="logout" class="quiet" hidden>退出登录</button></header>
+<header><div class="brand"><span class="mark" aria-hidden="true">影</span><div><strong>影像运维</strong><span id="modeLabel">补丁更新</span></div></div><button id="logout" class="quiet" hidden>退出登录</button></header>
 <main>
   <section id="loginPanel" class="login">
-    <h1>登录补丁工具</h1><p>登录后管理影像后端补丁。</p>
+    <h1>登录补丁工具</h1><p>登录后管理当前服务器的影像补丁。</p>
     <form id="loginForm"><label for="password">管理密码</label><input id="password" type="password" autocomplete="current-password" required><button type="submit" class="primary">登录</button></form>
   </section>
   <div id="workspace" hidden>
-    <div class="heading"><div><h1>后端补丁</h1><p id="target">正在读取服务器信息…</p></div><span class="status" id="serviceState">读取中</span></div>
+    <div class="heading"><div><h1 id="pageTitle">补丁更新</h1><p id="target">正在读取服务器信息…</p></div><span class="status" id="serviceState">读取中</span></div>
     <p id="connection" class="notice" role="status" hidden></p>
     <div class="workgrid">
-      <section class="panel upload-panel"><div class="section-title"><h2>更新补丁</h2><span class="subtle">JAR 文件</span></div>
+      <section class="panel upload-panel"><div class="section-title"><h2>更新补丁</h2><span id="fileType" class="subtle">补丁文件</span></div>
         <label class="filebox" for="file"><span class="fileicon" aria-hidden="true">↑</span><strong id="filename">选择本地后端补丁</strong><span id="filehint">上传完成后，可核对摘要再执行更新</span><input type="file" id="file" accept=".jar"></label>
         <button id="upload" class="secondary" disabled>上传并校验</button>
         <progress id="progress" max="100" value="0" hidden></progress><p id="uploadState" class="subtle" aria-live="polite"></p>
         <div class="saved"><label for="patches">已校验的补丁</label><select id="patches"><option value="">暂无补丁，请先上传</option></select><div id="patchInfo" class="fileinfo"></div></div>
-        <div class="update-note">更新会暂时停止影像后端。当前正式包会先备份，更新失败后可选择备份回退。</div>
+        <div id="updateNote" class="update-note">更新会暂时停止影像后端。当前正式包会先备份，更新失败后可选择备份回退。</div>
         <button id="deploy" class="primary wide" disabled>执行更新</button>
         <button id="removeUpload" class="quiet wide" disabled>删除选中的上传文件</button>
       </section>
-      <section class="panel log-panel"><div class="section-title"><h2>执行记录</h2><span id="jobState" class="subtle">等待操作</span></div><p id="jobSource" class="subtle"></p><ol id="events" class="timeline"><li class="empty">上传补丁后，从左侧执行更新。</li></ol><details><summary>查看启停脚本输出</summary><pre id="scriptLog">暂无输出</pre></details></section>
+      <section class="panel log-panel"><div class="section-title"><h2>执行记录</h2><span id="jobState" class="subtle">等待操作</span></div><p id="jobSource" class="subtle"></p><ol id="events" class="timeline"><li class="empty">上传补丁后，从左侧执行更新。</li></ol><details><summary id="logSummary">查看启停脚本输出</summary><pre id="scriptLog">暂无输出</pre></details></section>
     </div>
     <section class="panel history"><div class="section-title"><h2>备份与回退</h2><span class="subtle">回退前也会备份当前版本</span></div><div class="tablewrap"><table><thead><tr><th>备份文件</th><th>大小</th><th>操作</th></tr></thead><tbody id="backups"><tr><td colspan="3">暂无备份，首次更新时会自动创建。</td></tr></tbody></table></div></section>
     <section class="history-list"><label for="jobs">历史执行记录</label><select id="jobs"><option value="">暂无执行记录</option></select></section>
-    <footer>检查通过表示 Java 进程与后端端口稳定。更新后请访问影像功能，确认业务可用。</footer>
+    <footer id="footerNote">检查通过表示 Java 进程与后端端口稳定。更新后请访问影像功能，确认业务可用。</footer>
   </div>
   <p id="message" role="alert" hidden></p>
 </main>
-<dialog id="confirmDialog"><form id="confirmForm"><h2 id="confirmTitle">确认更新</h2><p>目标服务器：<strong id="confirmTarget"></strong></p><p id="confirmSource" class="break"></p><p>此操作会停止并重启影像后端，请安排好更新时间。</p><label for="confirmInput">输入“更新影像”继续</label><input id="confirmInput" autocomplete="off" required><div class="dialog-actions"><button type="button" id="cancel" class="secondary">取消</button><button type="submit" class="primary">确认执行</button></div></form></dialog>
+<dialog id="confirmDialog"><form id="confirmForm"><h2 id="confirmTitle">确认更新</h2><p>目标服务器：<strong id="confirmTarget"></strong></p><p id="confirmSource" class="break"></p><p id="confirmNote">此操作会停止并重启影像后端，请安排好更新时间。</p><label for="confirmInput">输入“更新影像”继续</label><input id="confirmInput" autocomplete="off" required><div class="dialog-actions"><button type="button" id="cancel" class="secondary">取消</button><button type="submit" class="primary">确认执行</button></div></form></dialog>
 </body></html>

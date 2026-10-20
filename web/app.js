@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 let csrf = '', state = null, selectedJob = '', pending = null, polling = false, uploading = false;
 let messageTimer, backupKey = '';
 function message(text) { $('message').textContent = text; $('message').hidden = false; clearTimeout(messageTimer); messageTimer = setTimeout(() => { $('message').hidden = true; }, 14000); }
-function bytes(n) { return (n / 1024 / 1024).toFixed(1) + ' MB'; }
+function bytes(n) { if(n===null)return '目录'; return (n / 1024 / 1024).toFixed(1) + ' MB'; }
 function stamp(value) { return new Date(value).toLocaleString('zh-CN', {hour12:false, timeZone:'Asia/Shanghai'}); }
 function showLogin() { $('workspace').hidden = true; $('loginPanel').hidden = false; $('logout').hidden = true; csrf = ''; }
 async function api(path, body) {
@@ -33,11 +33,20 @@ function patchInfo() {
   $('deploy').disabled = !patch || !!(state && state.status.active);
   $('removeUpload').disabled = !patch || !!(state && state.status.active);
 }
-const labels = {running:'正在执行',succeeded:'进程与端口检查通过',failed:'执行失败',interrupted:'监控中断，需核实'};
+const labels = {running:'正在执行',succeeded:'检查通过',failed:'执行失败',interrupted:'监控中断，需核实'};
 function render() {
-  const s = state.status, running = s.pids.length > 0 && s.port_open;
-  $('target').textContent = s.host + '　/　' + s.app_dir + '　/　端口 ' + s.port;
-  $('serviceState').textContent = s.active ? '更新进行中' : running ? '进程与端口正常' : s.pids.length ? '进程存在，端口未就绪' : '未检测到目标进程';
+  const s = state.status, front = s.deployment_type === 'frontend';
+  const running = front ? s.frontend_ready : s.pids.length > 0 && s.port_open;
+  $('pageTitle').textContent=front?'前端补丁':'后端补丁';
+  $('modeLabel').textContent=front?'前端补丁更新':'后端补丁更新';
+  $('fileType').textContent=front?'ZIP 文件，含 dist/':'JAR 文件';
+  $('file').accept=front?'.zip':'.jar';
+  if(!$('file').files.length)$('filename').textContent=front?'选择本地前端补丁 ZIP':'选择本地后端补丁';
+  $('updateNote').textContent=front?'更新会备份当前 dist 并切换新目录，可能有短暂访问间隙。不会重启 Nginx 或后端。':'更新会暂时停止影像后端。当前正式包会先备份，更新失败后可选择备份回退。';
+  $('footerNote').textContent=front?'检查通过表示静态文件切换与校验完成。请强制刷新页面，验证登录及补丁功能。':'检查通过表示 Java 进程与后端端口稳定。更新后请访问影像功能，确认业务可用。';
+  $('logSummary').textContent=front?'查看附加日志':'查看启停脚本输出';
+  $('target').textContent = s.host + '　/　' + s.app_dir + (front?'':'　/　端口 ' + s.port);
+  $('serviceState').textContent = s.active ? '更新进行中' : front ? (running?'前端入口存在':'前端目录需检查') : running ? '进程与端口正常' : s.pids.length ? '进程存在，端口未就绪' : '未检测到目标进程';
   $('serviceState').className = 'status ' + (s.active ? '' : running ? 'good' : 'bad');
   $('upload').disabled = !$('file').files.length || uploading;
   $('filehint').textContent = '最大 ' + bytes(s.max_upload) + '；校验通过后再执行更新';
@@ -82,6 +91,7 @@ async function refresh(silent=false) {
   } finally { polling=false; }
 }
 function confirmAction(kind, source, name) {
+  $('confirmNote').textContent=state.status.deployment_type==='frontend'?'此操作会切换前端目录，可能有短暂访问间隙。不会重启 Nginx 或后端。':'此操作会停止并重启影像后端，请安排好更新时间。';
   $('confirmTarget').textContent=state.status.host + ' / ' + state.status.app_dir;
   pending={kind,source};$('confirmTitle').textContent=kind==='update'?'确认更新补丁':'确认回退版本';$('confirmSource').textContent=name;
   $('confirmInput').value='';$('confirmDialog').showModal();$('confirmInput').focus();
@@ -91,10 +101,11 @@ $('loginForm').addEventListener('submit',async event=>{
   try { const data=await api('login',{password:$('password').value});csrf=data.csrf;$('password').value='';await refresh(); }catch(error){message(error.message);}finally{button.disabled=false;}
 });
 $('logout').addEventListener('click',async()=>{try{await api('logout',{});showLogin();}catch(error){message(error.message);}});
-$('file').addEventListener('change',()=>{const file=$('file').files[0];$('filename').textContent=file?file.name:'选择本地后端补丁';$('upload').disabled=!file || uploading;});
+$('file').addEventListener('change',()=>{const file=$('file').files[0];$('filename').textContent=file?file.name:(state && state.status.deployment_type==='frontend'?'选择本地前端补丁 ZIP':'选择本地后端补丁');$('upload').disabled=!file || uploading;});
 $('upload').addEventListener('click',()=>{
   const file=$('file').files[0];if(!file)return;
-  if(!file.name.toLowerCase().endsWith('.jar'))return message('请选择 .jar 补丁文件。');
+  const suffix=state && state.status.deployment_type==='frontend'?'.zip':'.jar';
+  if(!file.name.toLowerCase().endsWith(suffix))return message('请选择 '+suffix+' 补丁文件。');
   if(state && file.size>state.status.max_upload)return message('文件超过上传大小限制。');
   uploading=true;$('upload').disabled=true;$('progress').hidden=false;$('progress').value=0;
   const xhr=new XMLHttpRequest();xhr.open('POST','api/upload');xhr.setRequestHeader('Content-Type','application/octet-stream');xhr.setRequestHeader('X-CSRF-Token',csrf);
