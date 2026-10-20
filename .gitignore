@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+runtime/
+*.tar.gz
+config.json
+config.json.*
+*.sha256
+*.log
+*.bak*
+patch-backups/
+preview.png
+PRIVATE_DEPLOYMENT.md
+*.jar
+.env
+.env.*
+*.pem
+*.key

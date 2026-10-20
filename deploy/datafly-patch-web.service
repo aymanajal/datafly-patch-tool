@@ -1,0 +1,20 @@
+[Unit]
+Description=Datafly backend patch web tool
+After=network.target
+
+[Service]
+Type=simple
+# 使用原来管理 datafly.sh 的账号。当前用户提供的操作账号为 root。
+User=root
+Group=root
+WorkingDirectory=/opt/datafly-patch-tool
+ExecStart=/usr/bin/python3 /opt/datafly-patch-tool/server.py --config /opt/datafly-patch-tool/config.json
+Restart=on-failure
+RestartSec=5
+UMask=0077
+# Java 由工具启动后必须在工具退出时继续运行，避免重启工具连带停止后端。
+KillMode=process
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
