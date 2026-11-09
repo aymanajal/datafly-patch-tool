@@ -62,6 +62,20 @@ python3 server.py
 
 后台服务安装方式与 [部署说明](../DEPLOY.md) 相同；该服务器上工具独立读取自己的配置，不会自动修改其他服务器的后端工具。服务端仍兼容 Python 3.7，无 pip 依赖。
 
+## 可选：不限制来源 IP
+
+前端工具可以取消自身的来源 IP 限制，仍要求管理密码登录，保留会话和 CSRF 校验。在现有 `config.json` 中添加：
+
+```json
+"allow_any_peer": true
+```
+
+这是单个配置字段，不要用它覆盖整个配置文件。启用后，工具不再按 `allowed_peers` 拦截请求；设为 `false` 或不设置时，继续使用原 IP 白名单。
+
+确认没有更新任务后，执行 `systemctl restart datafly-patch-web` 使配置生效。它只重启网页工具，不会主动重启 Nginx 或 Java。更改来源限制不会修改监听地址 `bind` 或系统防火墙，也不提供 HTTPS 加密。
+
+仓库默认 `allow_any_peer` 为 `false`，每台服务器按实际需要设置。不要将包含密码摘要和现场地址的 `config.json` 提交 GitHub。
+
 ## 备份与回退
 
 工具产生的备份名称为 `dist-backup-时间-唯一编号`，存放在 dist 同级目录。还可以识别手工流程产生的 `dist-backup-年月日_时分秒` 备份，不会列出所有任意目录。

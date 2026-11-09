@@ -40,6 +40,7 @@ vi /opt/datafly-patch-tool/config.json
 | `app_dir` | 后端 JAR 与 `datafly.sh` 所在目录 |
 | `app_port` | 后端 Java 实际监听端口，用于检查 |
 | `allowed_peers` | 允许访问的来源 IP 列表，例如本机地址和运维电脑 IP |
+| `allow_any_peer` | 默认 `false`；设为 `true` 时跳过来源 IP 白名单，仍需密码登录，详见[前端工具说明](docs/FRONTEND.md#可选不限制来源-ip) |
 | `base_path` | 默认 `/patch-tool/`，必须以 `/` 开头和结尾 |
 | `secure_cookie` | HTTPS 入口设为 `true`；直接 HTTP 访问时为 `false` |
 

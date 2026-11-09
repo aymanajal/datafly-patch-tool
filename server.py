@@ -515,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            if self.client_address[0] not in self.manager.config['allowed_peers']:
+            if not self.manager.config.get('allow_any_peer', False) and self.client_address[0] not in self.manager.config['allowed_peers']:
                 return self.reply(403, {'error': '此地址不允许访问更新工具。'})
             route = self.route()
             assets = {'': ('index.html', 'text/html; charset=utf-8'),
@@ -548,7 +548,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            if self.client_address[0] not in self.manager.config['allowed_peers']:
+            if not self.manager.config.get('allow_any_peer', False) and self.client_address[0] not in self.manager.config['allowed_peers']:
                 return self.reply(403, {'error': '此地址不允许访问更新工具。'})
             route = self.route()
             origin = self.headers.get('Origin')
@@ -664,6 +664,7 @@ def defaults(config_path):
             'max_upload': 1024 ** 3, 'max_unpacked': 4 * 1024 ** 3,
             'max_stored_uploads': 5 * 1024 ** 3,
             'allowed_peers': ['127.0.0.1'],
+            'allow_any_peer': False,
             'stop_timeout': 120, 'start_timeout': 300, 'stable_seconds': 10,
             'deployment_type': 'backend', 'frontend_dir': '/usr/local/nginx/html/dist',
             'secure_cookie': False}

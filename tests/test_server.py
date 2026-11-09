@@ -233,6 +233,19 @@ class ToolTests(unittest.TestCase):
             server.Manager.command(self.manager, 'stop', 0.1, job)
         self.assertLess(time.monotonic()-started,5)
 
+    def test_allow_any_peer_keeps_login_and_csrf_required(self):
+        self.config['allowed_peers'] = []
+        with self.http_server() as port:
+            self.assertEqual(self.request(port, 'api/state')[0], 403)
+            self.assertEqual(self.request(port, 'api/login', {'password':'test-password-123'})[0], 403)
+            self.config['allow_any_peer'] = True
+            self.assertEqual(self.request(port, 'api/state')[0], 401)
+            status, headers, _ = self.request(port, 'api/login', {'password':'test-password-123'})
+            self.assertEqual(status, 200)
+            cookie = {'Cookie':headers['Set-Cookie'].split(';')[0]}
+            self.assertEqual(self.request(port, 'api/state', headers=cookie)[0], 200)
+            self.assertEqual(self.request(port, 'api/deploy', {'confirm':'更新影像'}, cookie)[0], 403)
+
 
 if __name__ == '__main__':
     unittest.main()
